@@ -92,21 +92,32 @@ class ChatGPT:
 出力画像: {output_image}
 ユーザーの要求: {user_prompt}
 """
-        session.append({"role": "user", "content": user_message})
+        session.append(
+            {"role": "user", "content": user_message, "content_for_user": user_prompt}
+        )
 
         completion = self.client.beta.chat.completions.parse(
             model=self.model_name,
             messages=[
-                m
+                {
+                    "role": m["role"],
+                    "content": m["content"],
+                }
                 for m in session.messages()
                 if m["role"] in {"system", "user", "assistant"}
             ],
             response_format=ImageMagickCommand,
         )
         data: ImageMagickCommand = completion.choices[0].message.parsed  # type: ignore
-
         text = f"description:{data.description}, command:{data.command}, output:{data.output}"
-        st.session_state.messages.append({"role": "assistant", "content": text})
+        json = {
+            "description": data.description,
+            "command": data.command,
+            "output": data.output,
+        }
+        st.session_state.messages.append(
+            {"role": "assistant", "content": text, "content_for_user": json}
+        )
         return data
 
 
@@ -141,10 +152,10 @@ if uploaded_file:
     session.add_image("input.png")
 
     # chat history
-    for m in session.messages()[1:]:
-        if m["role"] in {"system", "user", "assistant"}:
+    for m in session.messages():
+        if m["role"] in {"user", "assistant"} and m["content_for_user"]:
             with st.chat_message(m["role"]):
-                st.markdown(m["content"])
+                st.write(m["content_for_user"])
         elif m["role"] == "image":
             st.image(m["filepath"], caption=m["filename"])
 
