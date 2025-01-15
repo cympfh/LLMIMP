@@ -170,13 +170,24 @@ class ImageMagick:
 
 
 model_name = st.text_input(label="モデル名", value="gpt-4o")
-visual_mode = st.checkbox("Visual mode")
 client = ChatGPT(model_name)
+
+visual_mode = st.checkbox("Visual mode")
+maxwidth = 4000
+maxheight = 4000
+if visual_mode:
+    maxwidth = int(st.number_input("max width", value=4000))
+    maxheight = int(st.number_input("max height", value=4000))
+    if not (0 < maxheight <= 4000) or not (0 < maxwidth <= 4000):
+        st.error("Error: 0 < size <= 4000")
+        st.stop()
+
 
 uploaded_file = st.file_uploader("Upload an image", type=["jpeg", "jpg", "png", "gif"])
 if uploaded_file:
     input_image_path = os.path.join(session.output_dir, "input.png")
     image = PIL.Image.open(uploaded_file)
+    image.thumbnail((maxwidth, maxheight))
     image.save(input_image_path, format="PNG")
     st.image(input_image_path, caption="アップロードされた画像")
     session.add_image("input.png")
