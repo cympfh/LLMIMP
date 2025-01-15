@@ -1,5 +1,4 @@
 openai==1.58.1
-openai-whisper==20230918
-Pillow==9.4.0
+Pillow --only-binary=:all:
 pydantic==1.10.7
 streamlit==1.41.1
