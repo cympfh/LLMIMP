@@ -1,13 +1,23 @@
+import base64
+import mimetypes
 import os
 import pathlib
 import subprocess
 from typing import Any
 
 import openai
+import PIL.Image
 import streamlit as st
 from pydantic import BaseModel
 
 st.title("LLMIMP")
+
+
+def tobase64(path: str) -> str:
+    img_type, _ = mimetypes.guess_type(path)
+    with open(path, "rb") as f:
+        img_b64_str = base64.b64encode(f.read()).decode("utf-8")
+    return f"data:{img_type};base64,{img_b64_str}"
 
 
 class Session:
@@ -65,24 +75,43 @@ class ChatGPT:
     def _system_prompt(self):
         if not session.is_clear():
             return
-        system_prompt = f"""
+        system_prompt = """
 あなたは画像処理エキスパートです。
 ユーザーは初め input.png を持っています。
 ユーザーの指示に従って ImageMagick の convert コマンドを一つ発行してください。
 以下のフォーマットで応答してください。
 
 ```
-{{
+{
 "description": "<説明>",
 "command": "<ImageMagickのコマンド>",
 "output": "<出力画像ファイル名>"
-}}
+}
 ```
 
 ユーザーはあなたのコマンドを忠実に実行することで新しい画像を出力画像を得ます。
 あなたは初めの input.png に限らず、ユーザーの出力画像を中間ファイルとして再利用することができます。
 """
         session.append({"role": "system", "content": system_prompt})
+
+    def show_visual(self, image_path: str):
+        image_url = tobase64(image_path)
+        session.append(
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "text",
+                        "text": "こちらが実際の input.png です. 参考にして",
+                    },
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": image_url},
+                    },
+                ],
+                "content_for_user": None,
+            }
+        )
 
     def chat(self, user_prompt: str) -> ImageMagickCommand:
         output_image = f"img-{session.time()}.png"
@@ -140,16 +169,20 @@ class ImageMagick:
             return False
 
 
-model_name = st.text_input(label="モデル名", value="gpt-4o-mini")
+model_name = st.text_input(label="モデル名", value="gpt-4o")
+visual_mode = st.checkbox("Visual mode")
 client = ChatGPT(model_name)
 
-uploaded_file = st.file_uploader("Upload an image (.png)", type=["png"])
+uploaded_file = st.file_uploader("Upload an image", type=["jpeg", "jpg", "png", "gif"])
 if uploaded_file:
     input_image_path = os.path.join(session.output_dir, "input.png")
-    with open(input_image_path, "wb") as f:
-        f.write(uploaded_file.getbuffer())
+    image = PIL.Image.open(uploaded_file)
+    image.save(input_image_path, format="PNG")
     st.image(input_image_path, caption="アップロードされた画像")
     session.add_image("input.png")
+
+    if visual_mode:
+        client.show_visual(input_image_path)
 
     # chat history
     for m in session.messages():
@@ -186,4 +219,4 @@ if uploaded_file:
                 }
             )
         else:
-            st.error(f"コマンドの実行に失敗した")
+            st.error("コマンドの実行に失敗した")
