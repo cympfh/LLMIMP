@@ -67,8 +67,8 @@ class ImageMagickCommand(BaseModel):
 
 
 class ChatGPT:
-    def __init__(self, model_name: str):
-        self.client = openai.OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
+    def __init__(self, model_name: str, api_key: str):
+        self.client = openai.OpenAI(api_key=api_key)
         self.model_name = model_name
         self._system_prompt()
 
@@ -170,7 +170,16 @@ class ImageMagick:
 
 
 model_name = st.text_input(label="モデル名", value="gpt-4o")
-client = ChatGPT(model_name)
+api_key = None
+with st.sidebar:
+    if os.environ.get("OPENAI_API_KEY"):
+        api_key = os.environ.get("OPENAI_API_KEY")
+    else:
+        api_key = st.text_input("OPENAI_API_KEY")
+if not api_key:
+    st.warning("Open sidebar and type your OPENAI_API_KEY")
+assert api_key
+client = ChatGPT(model_name, api_key)
 
 visual_mode = st.checkbox("Visual mode")
 maxwidth = 4000
