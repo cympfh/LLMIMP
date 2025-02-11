@@ -1,4 +1,5 @@
 import base64
+import hashlib
 import mimetypes
 import os
 import pathlib
@@ -169,16 +170,27 @@ class ImageMagick:
             return False
 
 
-model_name = st.text_input(label="モデル名", value="gpt-4o")
+# API KEY
 api_key = None
 with st.sidebar:
     if os.environ.get("OPENAI_API_KEY"):
         api_key = os.environ.get("OPENAI_API_KEY")
     else:
-        api_key = st.text_input("OPENAI_API_KEY")
+        api_key = st.text_input("OPENAI_API_KEY", key="openai_api_key")
+
+        # If you have the password, you can use master API KEY
+        master_api_key = str(st.secrets.get("openai_api_key"))
+        password = st.secrets.get("password")
+        hashed = hashlib.md5((api_key + master_api_key).encode("utf-8")).hexdigest()
+        if hashed == password:
+            api_key = master_api_key
+            st.info("Master KEY used")
+
 if not api_key:
-    st.warning("Open sidebar and type your OPENAI_API_KEY")
-assert api_key
+    st.error("Open the sidebar (←) and enter your OPENAI_API_KEY")
+    st.stop()
+
+model_name = st.text_input(label="モデル名", value="gpt-4o")
 client = ChatGPT(model_name, api_key)
 
 visual_mode = st.checkbox("Visual mode")
