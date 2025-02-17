@@ -226,6 +226,13 @@ if uploaded_file:
                 st.write(m["content_for_user"])
         elif m["role"] == "image":
             st.image(m["filepath"], caption=m["filename"])
+            with open(m["filepath"], "rb") as imagefile:
+                st.download_button(
+                    ":material/download:",
+                    data=imagefile,
+                    file_name=m["filename"],
+                    mime=mimetypes.guess_type(m["filepath"])[0],
+                )
 
     # new conversation
     if prompt := st.chat_input("What do you want?"):
@@ -245,6 +252,13 @@ if uploaded_file:
         output_path = pathlib.Path(session.output_dir) / data.output
         if success and output_path.exists():
             st.image(str(output_path), caption=data.output)
+            with open(str(output_path), "rb") as imagefile:
+                st.download_button(
+                    ":material/download:",
+                    data=imagefile,
+                    file_name=data.output,
+                    mime=mimetypes.guess_type(data.output)[0],
+                )
             session.add_image(data.output)
             session.append(
                 {
