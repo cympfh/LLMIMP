@@ -4,7 +4,8 @@ import mimetypes
 import os
 import pathlib
 import subprocess
-from typing import Any
+from dataclasses import dataclass
+from typing import Any, Literal
 
 import openai
 import PIL.Image
@@ -12,7 +13,7 @@ import streamlit as st
 from pydantic import BaseModel
 
 st.title("LLMIMP")
-st.subheader("v2025.02.17")
+st.subheader("v2025.02.17.alpha")
 
 
 def tobase64(path: str) -> str:
@@ -22,6 +23,57 @@ def tobase64(path: str) -> str:
     return f"data:{img_type};base64,{img_b64_str}"
 
 
+@dataclass
+class Message:
+    role: Literal["system", "user", "assistant", "image"]
+    content: Any | None = None
+    content_for_user: Any | None = None
+    filename: str | None = None
+    filepath: str | None = None
+
+
+class Messages:
+    system: Message | None
+    system_image: Message | None
+    chat: list[tuple[Message, Message, Message]]  # user, assistant, image
+    chat_length: int
+
+    def __init__(self):
+        self.system = None
+        self.system_image = None
+        self.chat = []
+        self.chat_length = 0
+
+    def clear(self):
+        self.chat.clear()
+
+    def undo(self):
+        if self.chat_length > 0:
+            self.chat_length -= 1
+
+    def redo(self):
+        if self.chat_length + 1 <= len(self.chat):
+            self.chat_length += 1
+
+    def trim(self):
+        self.chat = self.chat[: self.chat_length]
+
+    def iter(self, visual_mode: bool):
+        if self.system:
+            yield self.system
+        if self.system_image and visual_mode:
+            yield self.system_image
+        for x, y, z in self.chat[: self.chat_length]:
+            yield x
+            yield y
+            yield z
+
+    def append(self, m_user: Message, m_assistant: Message, m_image: Message):
+        self.trim()
+        self.chat_length += 1
+        self.chat.append((m_user, m_assistant, m_image))
+
+
 class Session:
     """Management for streamlit.session_state"""
 
@@ -29,65 +81,22 @@ class Session:
 
     def __init__(self):
         if "init" not in st.session_state:
-            self.clear()
-
-    def clear(self):
-        st.session_state.init = True
-        st.session_state.time = 0
-        st.session_state.source_images = []
-        st.session_state.messages = []
-        st.session_state.input_shown = False
-        os.makedirs(self.output_dir, exist_ok=True)
-
-    def is_clear(self) -> bool:
-        return len(st.session_state.messages) == 0
-
-    def append(self, data: Any):
-        st.session_state.messages.append(data)
-
-    def num_messages(self):
-        """本来期待されるメッセージ数
-
-        Undo/Redo を加味する
-        """
-        offset = len(st.session_state.messages) % 3
-        return offset + self.time() * 3
-
-    def messages(self) -> list[Any]:
-        num = self.num_messages()
-        return st.session_state.messages[:num]
-
-    def trim(self):
-        num = self.num_messages()
-        st.session_state.messages = st.session_state.messages[:num]
+            st.session_state.init = True
+            st.session_state.messages = Messages()
+            st.session_state.input_shown = False
+            os.makedirs(self.output_dir, exist_ok=True)
 
     def time(self) -> int:
-        return st.session_state.time
+        return st.session_state.messages.chat_length
 
-    def next_tick(self):
-        if len(st.session_state.messages) > self.num_messages():
-            st.session_state.time += 1
-
-    def back_tick(self):
-        if st.session_state.time > 0:
-            st.session_state.time -= 1
-            return True
-        else:
-            return False
+    @property
+    def messages(self):
+        return st.session_state.messages
 
     def images(self) -> list[str]:
-        return st.session_state.source_images
-
-    def add_image(self, image: str):
-        if image in st.session_state.source_images:
-            return
-        st.session_state.source_images.append(image)
-
-    def undo(self):
-        self.back_tick()
-
-    def redo(self):
-        self.next_tick()
+        return ["input.png"] + [
+            m.filename for m in self.messages.iter(False) if m.role == "image"
+        ]
 
 
 session = Session()
@@ -106,9 +115,9 @@ class ChatGPT:
         self._system_prompt()
 
     def _system_prompt(self):
-        if not session.is_clear():
-            return
-        system_prompt = """
+        session.messages.system = Message(
+            role="system",
+            content="""
 あなたは画像処理エキスパートです。
 ユーザーは初め input.png を持っています。
 ユーザーの指示に従って ImageMagick の convert コマンドを一つ発行してください。
@@ -124,52 +133,47 @@ class ChatGPT:
 
 ユーザーはあなたのコマンドを忠実に実行することで新しい画像を出力画像を得ます。
 あなたは初めの input.png に限らず、ユーザーの出力画像を中間ファイルとして再利用することができます。
-"""
-        session.append({"role": "system", "content": system_prompt})
+""",
+        )
 
     def show_visual(self, image_path: str):
         if st.session_state.input_shown:
             return
         st.session_state.input_shown = True
         image_url = tobase64(image_path)
-        session.append(
-            {
-                "role": "user",
-                "content": [
-                    {
-                        "type": "text",
-                        "text": "こちらが実際の input.png です. 参考にして",
-                    },
-                    {
-                        "type": "image_url",
-                        "image_url": {"url": image_url},
-                    },
-                ],
-                "content_for_user": None,
-            }
+        session.messages.system_image = Message(
+            role="user",
+            content=[
+                {
+                    "type": "text",
+                    "text": "こちらが実際の input.png です. 参考にして",
+                },
+                {
+                    "type": "image_url",
+                    "image_url": {"url": image_url},
+                },
+            ],
         )
 
-    def chat(self, user_prompt: str) -> ImageMagickCommand:
+    def chat(
+        self, user_prompt: str, visual_mode: bool
+    ) -> tuple[ImageMagickCommand, Message, Message]:
         output_image = f"img-{session.time()}.png"
-        session.next_tick()
-        user_message = f"""
+        m_user = Message(
+            role="user",
+            content=f"""
 入力画像 (この画像のみが参照可能): {session.images()}
 出力画像: {output_image}
 ユーザーの要求: {user_prompt}
-"""
-        session.append(
-            {"role": "user", "content": user_message, "content_for_user": user_prompt}
+""",
+            content_for_user=user_prompt,
         )
-
         completion = self.client.beta.chat.completions.parse(
             model=self.model_name,
             messages=[
-                {
-                    "role": m["role"],
-                    "content": m["content"],
-                }
-                for m in session.messages()
-                if m["role"] in {"system", "user", "assistant"}
+                {"role": m.role, "content": m.content}
+                for m in list(session.messages.iter(visual_mode)) + [m_user]
+                if m.role in {"system", "user", "assistant"}
             ],
             response_format=ImageMagickCommand,
         )
@@ -180,10 +184,8 @@ class ChatGPT:
             "command": data.command,
             "output": data.output,
         }
-        st.session_state.messages.append(
-            {"role": "assistant", "content": text, "content_for_user": json}
-        )
-        return data
+        m_assistant = Message(role="assistant", content=text, content_for_user=json)
+        return data, m_user, m_assistant
 
 
 class ImageMagick:
@@ -231,9 +233,6 @@ client = ChatGPT(model_name, api_key)
 visual_mode = st.checkbox("Visual mode", value=True, help="オフにすると画像を見ないでコマンドを生成する")
 
 uploaded_file = st.file_uploader("Upload an image", type=["jpeg", "jpg", "png", "gif"])
-if not uploaded_file:
-    session.clear()
-
 if uploaded_file:
     input_image_path = os.path.join(session.output_dir, "input.png")
     image = PIL.Image.open(uploaded_file)
@@ -252,32 +251,30 @@ if uploaded_file:
 
     image.save(input_image_path, format="PNG")
     st.image(input_image_path, caption="アップロードされた画像 (input.png)")
-    session.add_image("input.png")
 
     if visual_mode:
         client.show_visual(input_image_path)
 
     # chat history
-    for m in session.messages():
-        if m["role"] in {"user", "assistant"} and m["content_for_user"]:
-            with st.chat_message(m["role"]):
-                st.write(m["content_for_user"])
-        elif m["role"] == "image":
-            st.image(m["filepath"], caption=m["filename"])
-            with open(m["filepath"], "rb") as imagefile:
+    for m in session.messages.iter(visual_mode):
+        if m.role in {"user", "assistant"} and m.content_for_user:
+            with st.chat_message(m.role):
+                st.write(m.content_for_user)
+        elif m.role == "image":
+            st.image(m.filepath, caption=m.filename)
+            with open(m.filepath, "rb") as imagefile:
                 st.download_button(
                     ":material/download:",
                     data=imagefile,
-                    file_name=m["filename"],
-                    mime=mimetypes.guess_type(m["filepath"])[0],
+                    file_name=m.filename,
+                    mime=mimetypes.guess_type(m.filepath)[0],
                 )
 
     # new conversation
     if prompt := st.chat_input("What do you want?"):
-        session.trim()
         with st.chat_message("user"):
             st.markdown(prompt)
-        data = client.chat(prompt)
+        data, m_user, m_assistant = client.chat(prompt, visual_mode)
         with st.chat_message("assistant"):
             st.json(
                 {
@@ -298,14 +295,13 @@ if uploaded_file:
                     file_name=data.output,
                     mime=mimetypes.guess_type(data.output)[0],
                 )
-            session.add_image(data.output)
-            session.append(
-                {
-                    "role": "image",
-                    "filename": data.output,
-                    "filepath": str(output_path),
-                }
+            m_image = Message(
+                role="image",
+                filename=data.output,
+                filepath=str(output_path),
             )
+            session.messages.append(m_user, m_assistant, m_image)
+
         else:
             st.error("コマンドの実行に失敗した")
 
@@ -313,15 +309,29 @@ if uploaded_file:
         left, mid, right = st.columns(3)
         with left:
             st.button(
-                ":material/undo: Undo", use_container_width=True, on_click=session.undo
+                ":material/undo: Undo",
+                use_container_width=True,
+                on_click=session.messages.undo,
             )
         with mid:
             st.button(
-                ":material/redo: Redo", use_container_width=True, on_click=session.redo
+                ":material/redo: Redo",
+                use_container_width=True,
+                on_click=session.messages.redo,
             )
         with right:
             st.button(
                 ":material/clear: All clear",
                 use_container_width=True,
-                on_click=session.clear,
+                on_click=session.messages.clear,
             )
+
+    # with st.sidebar:
+    #     with st.expander("DEBUG"):
+    #         st.write(
+    #             {
+    #                 "time": session.time(),
+    #                 "chat_length": session.messages.chat_length,
+    #                 "len(chat)": len(session.messages.chat),
+    #             }
+    #         )
