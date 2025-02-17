@@ -190,7 +190,10 @@ if not api_key:
     st.error("Open the sidebar (←) and enter your OPENAI_API_KEY")
     st.stop()
 
-model_name = st.text_input(label="モデル名", value="gpt-4o")
+model_name = st.selectbox(
+    label="モデル名", options=["o3-mini", "gpt-4o", "gpt-4o-mini", "o1"]
+)
+
 client = ChatGPT(model_name, api_key)
 
 visual_mode = st.checkbox("Visual mode")
