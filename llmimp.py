@@ -221,7 +221,7 @@ with st.sidebar:
             st.info("Master KEY used")
 
 if not api_key:
-    st.error("Open the sidebar (←) and enter your OPENAI_API_KEY")
+    st.error(":material/reply: Open the sidebar and enter your OPENAI_API_KEY")
     st.stop()
 
 model_name = st.selectbox(label="モデル名", options=["gpt-4o-mini", "gpt-4o", "o1"])
