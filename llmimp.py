@@ -190,30 +190,30 @@ if not api_key:
     st.error("Open the sidebar (←) and enter your OPENAI_API_KEY")
     st.stop()
 
-model_name = st.selectbox(
-    label="モデル名", options=["o3-mini", "gpt-4o", "gpt-4o-mini", "o1"]
-)
+model_name = st.selectbox(label="モデル名", options=["gpt-4o-mini", "gpt-4o", "o1"])
 
 client = ChatGPT(model_name, api_key)
-
-visual_mode = st.checkbox("Visual mode")
-maxwidth = 4000
-maxheight = 4000
-if visual_mode:
-    maxwidth = int(st.number_input("max width", value=4000))
-    maxheight = int(st.number_input("max height", value=4000))
-    if not (0 < maxheight <= 4000) or not (0 < maxwidth <= 4000):
-        st.error("Error: 0 < size <= 4000")
-        st.stop()
-
+visual_mode = st.checkbox("Visual mode", value=True, help="オフにすると画像を見ないでコマンドを生成する")
 
 uploaded_file = st.file_uploader("Upload an image", type=["jpeg", "jpg", "png", "gif"])
 if uploaded_file:
     input_image_path = os.path.join(session.output_dir, "input.png")
     image = PIL.Image.open(uploaded_file)
-    image.thumbnail((maxwidth, maxheight))
+
+    # Image size
+    width, height = image.size
+    maxwidth = int(st.number_input("width", value=width))
+    maxheight = int(st.number_input("height", value=height))
+    if not (0 < maxwidth <= width) or not (0 < maxheight <= height):
+        st.error("Error: The size should be smaller than original!")
+        st.stop()
+
+    # shrink
+    if maxwidth < width or maxheight < height:
+        image.thumbnail((maxwidth, maxheight))
+
     image.save(input_image_path, format="PNG")
-    st.image(input_image_path, caption="アップロードされた画像")
+    st.image(input_image_path, caption="アップロードされた画像 (input.png)")
     session.add_image("input.png")
 
     if visual_mode:
@@ -228,7 +228,7 @@ if uploaded_file:
             st.image(m["filepath"], caption=m["filename"])
 
     # new conversation
-    if prompt := st.chat_input("What do you want"):
+    if prompt := st.chat_input("What do you want?"):
         with st.chat_message("user"):
             st.markdown(prompt)
         data = client.chat(prompt)
