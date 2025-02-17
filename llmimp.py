@@ -137,9 +137,6 @@ class ChatGPT:
         )
 
     def show_visual(self, image_path: str):
-        if st.session_state.input_shown:
-            return
-        st.session_state.input_shown = True
         image_url = tobase64(image_path)
         session.messages.system_image = Message(
             role="user",
@@ -239,11 +236,12 @@ if uploaded_file:
 
     # Image size
     width, height = image.size
-    maxwidth = int(st.number_input("width", value=width))
-    maxheight = int(st.number_input("height", value=height))
-    if not (0 < maxwidth <= width) or not (0 < maxheight <= height):
-        st.error("Error: The size should be smaller than original!")
-        st.stop()
+    maxwidth = int(
+        st.slider("width", min_value=10, max_value=width, value=width, step=10)
+    )
+    maxheight = int(
+        st.slider("height", min_value=10, max_value=height, value=height, step=10)
+    )
 
     # shrink
     if maxwidth < width or maxheight < height:
