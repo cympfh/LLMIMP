@@ -28,11 +28,15 @@ class Session:
 
     def __init__(self):
         if "init" not in st.session_state:
-            st.session_state.init = True
-            st.session_state.time = 0
-            st.session_state.source_images = []
-            st.session_state.messages = []
-            os.makedirs(self.output_dir, exist_ok=True)
+            self.clear()
+
+    def clear(self):
+        st.session_state.init = True
+        st.session_state.time = 0
+        st.session_state.source_images = []
+        st.session_state.messages = []
+        st.session_state.input_shown = False
+        os.makedirs(self.output_dir, exist_ok=True)
 
     def is_clear(self) -> bool:
         return len(st.session_state.messages) == 0
@@ -40,14 +44,35 @@ class Session:
     def append(self, data: Any):
         st.session_state.messages.append(data)
 
+    def num_messages(self):
+        """本来期待されるメッセージ数
+
+        Undo/Redo を加味する
+        """
+        offset = len(st.session_state.messages) % 3
+        return offset + self.time() * 3
+
     def messages(self) -> list[Any]:
-        return st.session_state.messages
+        num = self.num_messages()
+        return st.session_state.messages[:num]
+
+    def trim(self):
+        num = self.num_messages()
+        st.session_state.messages = st.session_state.messages[:num]
 
     def time(self) -> int:
         return st.session_state.time
 
     def next_tick(self):
-        st.session_state.time += 1
+        if len(st.session_state.messages) > self.num_messages():
+            st.session_state.time += 1
+
+    def back_tick(self):
+        if st.session_state.time > 0:
+            st.session_state.time -= 1
+            return True
+        else:
+            return False
 
     def images(self) -> list[str]:
         return st.session_state.source_images
@@ -56,6 +81,12 @@ class Session:
         if image in st.session_state.source_images:
             return
         st.session_state.source_images.append(image)
+
+    def undo(self):
+        self.back_tick()
+
+    def redo(self):
+        self.next_tick()
 
 
 session = Session()
@@ -96,6 +127,9 @@ class ChatGPT:
         session.append({"role": "system", "content": system_prompt})
 
     def show_visual(self, image_path: str):
+        if st.session_state.input_shown:
+            return
+        st.session_state.input_shown = True
         image_url = tobase64(image_path)
         session.append(
             {
@@ -196,6 +230,9 @@ client = ChatGPT(model_name, api_key)
 visual_mode = st.checkbox("Visual mode", value=True, help="オフにすると画像を見ないでコマンドを生成する")
 
 uploaded_file = st.file_uploader("Upload an image", type=["jpeg", "jpg", "png", "gif"])
+if not uploaded_file:
+    session.clear()
+
 if uploaded_file:
     input_image_path = os.path.join(session.output_dir, "input.png")
     image = PIL.Image.open(uploaded_file)
@@ -236,6 +273,7 @@ if uploaded_file:
 
     # new conversation
     if prompt := st.chat_input("What do you want?"):
+        session.trim()
         with st.chat_message("user"):
             st.markdown(prompt)
         data = client.chat(prompt)
@@ -269,3 +307,20 @@ if uploaded_file:
             )
         else:
             st.error("コマンドの実行に失敗した")
+
+    with st.container():
+        left, mid, right = st.columns(3)
+        with left:
+            st.button(
+                ":material/undo: Undo", use_container_width=True, on_click=session.undo
+            )
+        with mid:
+            st.button(
+                ":material/redo: Redo", use_container_width=True, on_click=session.redo
+            )
+        with right:
+            st.button(
+                ":material/clear: All clear",
+                use_container_width=True,
+                on_click=session.clear,
+            )
