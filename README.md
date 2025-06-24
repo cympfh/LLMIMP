@@ -12,5 +12,5 @@ LLM IMAGE MANIPULATION PROGRAM
 ## Run
 
 ```bash
-$ streamlit run ./main.py
+$ streamlit run ./llmimp.py
 ```

@@ -13,7 +13,7 @@ import streamlit as st
 from pydantic import BaseModel
 
 st.title("LLMIMP")
-st.subheader("v2025.02.17.alpha")
+st.subheader("v2025.06.24")
 
 
 def tobase64(path: str) -> str:
@@ -118,9 +118,14 @@ class ChatGPT:
         session.messages.system = Message(
             role="system",
             content="""
-あなたは画像処理エキスパートです。
+あなたは画像処理の専門家です.
+あなたは ImageMagick の convert コマンドを使って画像を処理するためのコマンドを生成します.
+
 ユーザーは初め input.png を持っています。
-ユーザーの指示に従って ImageMagick の convert コマンドを一つ発行してください。
+ユーザーはこれを ImageMagick を使って加工していきたいと考えています.
+あなたは適切なコマンドを発行することでユーザーを満足させてください.
+
+あなたが出来ることは convert コマンドを生成することです.
 以下のフォーマットで応答してください。
 
 ```
@@ -131,8 +136,10 @@ class ChatGPT:
 }
 ```
 
-ユーザーはあなたのコマンドを忠実に実行することで新しい画像を出力画像を得ます。
+ユーザーはあなたのコマンドを忠実に実行します.
+
 あなたは初めの input.png に限らず、ユーザーの出力画像を中間ファイルとして再利用することができます。
+あなたが発行したコマンドは本当にコマンドとして有効ですか？ 常に自分に問いかけてください。
 """,
         )
 
@@ -224,10 +231,15 @@ if not api_key:
     st.error(":material/reply: Open the sidebar and enter your OPENAI_API_KEY")
     st.stop()
 
-model_name = st.selectbox(label="モデル名", options=["gpt-4o-mini", "gpt-4o", "o1"])
+model_name = st.selectbox(
+    label="モデル (https://platform.openai.com/docs/models)",
+    options=["o4-mini", "gpt-4.1", "gpt-4o"],
+)
 
 client = ChatGPT(model_name, api_key)
-visual_mode = st.checkbox("Visual mode", value=True, help="オフにすると画像を見ないでコマンドを生成する")
+visual_mode = st.checkbox(
+    "Visual mode", value=True, help="オフにすると画像を見ずにコマンドを生成する"
+)
 
 uploaded_file = st.file_uploader("Upload an image", type=["jpeg", "jpg", "png", "gif"])
 if uploaded_file:
@@ -236,15 +248,23 @@ if uploaded_file:
 
     # Image size
     width, height = image.size
-    maxwidth = int(
-        st.slider("width", min_value=10, max_value=width, value=width, step=10)
-    )
-    maxheight = int(
-        st.slider("height", min_value=10, max_value=height, value=height, step=10)
+    st.info(f"Original image size: {width}x{height}")
+    resize_ratio = float(
+        st.slider(
+            "resize ratio",
+            min_value=0.1,
+            max_value=1.0,
+            value=1.0,
+            step=0.1,
+            help="画像のリサイズ率",
+        )
     )
 
     # shrink
-    if maxwidth < width or maxheight < height:
+    if resize_ratio < 1.0:
+        maxwidth = int(width * resize_ratio)
+        maxheight = int(height * resize_ratio)
+        st.info(f"Resized to {maxwidth}x{maxheight}")
         image.thumbnail((maxwidth, maxheight))
 
     image.save(input_image_path, format="PNG")
